@@ -162,6 +162,10 @@ if(typeof Tesseract === 'undefined'){
       rgba(0,0,0,.055) 0, rgba(0,0,0,.055) var(--lh), transparent var(--lh), transparent calc(var(--lh)*2))
   }
   #texteLu .encours{background:var(--sur,#FFE08A);color:#14161A;border-radius:5px}
+  #texteLu .s0{color:var(--c0)}
+  #texteLu .s1{color:var(--c1)}
+  #texteLu .s2{color:var(--c2)}
+  #texteLu.gras-alt [data-p="1"]{font-weight:700}
   #texteLu span{cursor:pointer}
   .audio{
     display:flex;gap:10px;align-items:center;flex-wrap:wrap;
@@ -344,6 +348,16 @@ if(typeof Tesseract === 'undefined'){
       <label for="cTexte">Lettres au choix</label>
       <input type="color" id="cTexte" value="#2B2418">
     </div>
+    <div>
+      <label for="syllabes">Coloration des syllabes</label>
+      <select id="syllabes">
+        <option value="non">Aucune (texte modifiable)</option>
+        <option value="deux">Deux couleurs alternées</option>
+        <option value="trois">Trois couleurs</option>
+        <option value="gris">Noir et gris</option>
+      </select>
+    </div>
+    <label class="case"><input type="checkbox" id="grasSyl"><span>Une syllabe sur deux en gras</span></label>
     <label class="case"><input type="checkbox" id="rayures" checked><span>Colorer une ligne sur deux</span></label>
   </div>
 
@@ -821,6 +835,107 @@ btnExtraire.addEventListener('click', async () => {
   dessiner();
 });
 
+/* ---------- Découpage en syllabes ---------- */
+const VOY = 'aàâäeéèêëiîïoôöuùûüyÿœæ';
+const sansAccent = s => s
+  .replace(/[àâä]/g,'a').replace(/[éèêë]/g,'e').replace(/[îï]/g,'i')
+  .replace(/[ôö]/g,'o').replace(/[ùûü]/g,'u').replace(/ÿ/g,'y')
+  .replace(/œ/g,'oe').replace(/æ/g,'ae');
+const estVoy = c => VOY.includes(c);
+const GROUPES3 = ['eau','oeu','ieu','iau','oui','uoi','aie','eoi'];
+const GROUPES2 = ['ai','ay','au','ei','ey','eu','oe','oi','ou','oy','ui','uy','ia','ie','io','iu','ya','ye','yo','yu'];
+const INSEP = ['bl','cl','fl','gl','pl','br','cr','dr','fr','gr','pr','tr','vr','ch','ph','th','gn','qu','gu','vl','kr','kl'];
+
+function unites(b){
+  const n = sansAccent(b), u = [];
+  let i = 0;
+  while(i < b.length){
+    if(estVoy(b[i])){
+      let l = 1;
+      const accentue = 'àâéèêëîôöùûÿ'.includes(b[i]);
+      const trema = 'ïëÿ'.includes(b[i+1] || '');
+      if(!accentue && !trema){
+        if(GROUPES3.includes(n.slice(i, i+3))) l = 3;
+        else if(GROUPES2.includes(n.slice(i, i+2))) l = 2;
+      }
+      let j = i + l;
+      if(j < b.length && (n[j] === 'n' || n[j] === 'm')){
+        const s = n[j+1];
+        if(s === undefined || (!estVoy(s) && s !== 'n' && s !== 'm' && s !== 'h')) j++;
+      }
+      u.push({ t:'V', d:i, f:j }); i = j;
+    }else{
+      let j = i + 1;
+      if((n[i] === 'q' || n[i] === 'g') && n[i+1] === 'u' && estVoy(b[i+2] || '')) j = i + 2;
+      u.push({ t:'C', d:i, f:j }); i = j;
+    }
+  }
+  return u;
+}
+
+function syllabes(mot){
+  if(mot.length < 3) return [mot];
+  const b = mot.toLowerCase(), n = sansAccent(b);
+  const u = unites(b);
+  if(u.filter(x => x.t === 'V').length < 2) return [mot];
+  const coupes = [];
+  for(let i = 0; i < u.length; i++){
+    if(u[i].t !== 'V') continue;
+    let j = i + 1; const cons = [];
+    while(j < u.length && u[j].t === 'C'){ cons.push(u[j]); j++; }
+    if(j >= u.length) break;
+    const k = cons.length;
+    let pos;
+    if(k === 0) pos = u[j].d;
+    else if(k === 1) pos = cons[0].d;
+    else{
+      const deux = n.slice(cons[k-2].d, cons[k-1].f);
+      pos = INSEP.includes(deux) ? cons[k-2].d : cons[k-1].d;
+    }
+    if(pos > 0 && pos < mot.length) coupes.push(pos);
+  }
+  const out = [];
+  let prec = 0;
+  for(const c of [...new Set(coupes)].sort((a, b) => a - b)){
+    if(c > prec){ out.push(mot.slice(prec, c)); prec = c; }
+  }
+  out.push(mot.slice(prec));
+  return out.filter(Boolean);
+}
+
+const PALETTES = {
+  deux:  { clair:['#1B4FA8','#C0392B'],           sombre:['#8FC0FF','#FF9E8F'] },
+  trois: { clair:['#1B4FA8','#C0392B','#1C7A45'], sombre:['#8FC0FF','#FF9E8F','#7BD8A4'] },
+  gris:  { clair:['#14161A','#79828D'],           sombre:['#E9ECF1','#95A2B0'] }
+};
+const selSyl = document.getElementById('syllabes'), chkGras = document.getElementById('grasSyl');
+const coloriageActif = () => selSyl.value !== 'non';
+
+function remplir(parent, texte){
+  if(!coloriageActif()){ parent.appendChild(document.createTextNode(texte)); return; }
+  const nb = PALETTES[selSyl.value].clair.length;
+  const re = /[A-Za-zÀ-ÖØ-öø-ÿ]+/g;
+  let pos = 0, m;
+  while((m = re.exec(texte)) !== null){
+    if(m.index > pos) parent.appendChild(document.createTextNode(texte.slice(pos, m.index)));
+    syllabes(m[0]).forEach((s, k) => {
+      const e = document.createElement('span');
+      e.className = 's' + (k % nb);
+      e.dataset.p = k % 2;
+      e.textContent = s;
+      parent.appendChild(e);
+    });
+    pos = m.index + m[0].length;
+  }
+  if(pos < texte.length) parent.appendChild(document.createTextNode(texte.slice(pos)));
+}
+
+function afficherTexte(){
+  pane.innerHTML = '';
+  remplir(pane, texteBrut);
+  pane.setAttribute('contenteditable', coloriageActif() ? 'false' : 'true');
+}
+
 /* ---------- Mise en forme adaptée ---------- */
 const polices = {
   dys:     "'OpenDyslexic', Verdana, sans-serif",
@@ -855,13 +970,26 @@ function appliquerStyle(){
   pane.style.backgroundColor  = cFond.value;
   pane.style.setProperty('--lh', (taille * inter) + 'px');
   pane.classList.toggle('rayures', chkRayures.checked);
+  if(coloriageActif()){
+    const f = cFond.value;
+    const lum = (parseInt(f.substr(1,2),16)*0.299 + parseInt(f.substr(3,2),16)*0.587 + parseInt(f.substr(5,2),16)*0.114);
+    const jeu = PALETTES[selSyl.value][lum < 128 ? 'sombre' : 'clair'];
+    jeu.forEach((c, i) => pane.style.setProperty('--c' + i, c));
+  }
+  pane.classList.toggle('gras-alt', chkGras.checked);
   document.getElementById('vTaille').textContent     = taille;
   document.getElementById('vInterligne').textContent = fr(inter);
   document.getElementById('vLettres').textContent    = fr(rLettres.value);
   document.getElementById('vMots').textContent       = fr(rMots.value);
 }
-[selPolice, rTaille, rInter, rLettres, rMots, cFond, cTexte, chkRayures]
+[selPolice, rTaille, rInter, rLettres, rMots, cFond, cTexte, chkRayures, chkGras]
   .forEach(el => el.addEventListener('input', appliquerStyle));
+
+selSyl.addEventListener('change', () => {
+  if(enLecture){ construirePhrases(); surligner(iPhrase); }
+  else afficherTexte();
+  appliquerStyle();
+});
 
 selTheme.addEventListener('change', () => {
   const t = themes[selTheme.value];
@@ -875,8 +1003,7 @@ document.getElementById('basculeReglages').addEventListener('click', () =>
 
 function ouvrirLecteur(){
   arreterLecture();
-  pane.textContent = texteBrut;
-  pane.setAttribute('contenteditable', 'true');
+  afficherTexte();
   pane.style.setProperty('--sur', themes[selTheme.value].sur);
   appliquerStyle();
   lecteur.classList.add('ouvert');
@@ -941,13 +1068,13 @@ function decouper(t){
 }
 
 function construirePhrases(){
-  texteBrut = pane.textContent;
+  if(!coloriageActif()) texteBrut = pane.textContent;
   phrases = decouper(texteBrut);
   pane.setAttribute('contenteditable', 'false');
   pane.innerHTML = '';
   phrases.forEach((p, i) => {
     const s = document.createElement('span');
-    s.textContent = p;
+    remplir(s, p);
     s.dataset.i = i;
     s.addEventListener('click', () => { iPhrase = i; if(enLecture){ speechSynthesis.cancel(); parler(i); } });
     pane.appendChild(s);
@@ -991,8 +1118,8 @@ function arreterLecture(){
   if('speechSynthesis' in window) speechSynthesis.cancel();
   if(enLecture){
     enLecture = false;
-    pane.textContent = texteBrut;
-    pane.setAttribute('contenteditable', 'true');
+    afficherTexte();
+    appliquerStyle();
   }
   btnLire.textContent = 'Lire à voix haute';
 }
