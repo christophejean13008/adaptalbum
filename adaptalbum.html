@@ -178,10 +178,12 @@ if(typeof Tesseract === 'undefined'){
   .audio input[type=range]{flex:1;accent-color:var(--ambre)}
 
   .reglages{
-    margin-top:26px;padding:18px;border:1px solid var(--trait);border-radius:var(--r);
-    background:rgba(10,31,53,.5);display:grid;gap:14px;
+    margin-top:14px;padding:18px;border:1px solid var(--trait);border-radius:var(--r);
+    background:rgba(10,31,53,.5);display:none;gap:14px;
     grid-template-columns:repeat(auto-fit,minmax(190px,1fr))
   }
+  .reglages.ouvert{display:grid}
+  #basculeOutils{margin-top:26px;font-size:.92rem;padding:10px 14px;min-height:42px}
   label{display:block;font-size:.86rem;color:#8FB0CC;margin-bottom:6px}
   select,input[type=text]{
     width:100%;font-family:var(--ui);font-size:1rem;padding:11px 12px;min-height:46px;
@@ -195,7 +197,16 @@ if(typeof Tesseract === 'undefined'){
     backdrop-filter:blur(8px)
   }
   .pied .dedans{max-width:980px;margin:0 auto;display:flex;gap:12px;align-items:center}
-  .pied .principal{flex:1;justify-content:center}
+  .pied .dedans button{justify-content:center}
+  #extraire{
+    flex:3;font-size:1.2rem;font-weight:700;min-height:62px;padding:16px 18px;
+    box-shadow:0 4px 16px rgba(233,161,59,.3)
+  }
+  #creer{flex:1;font-size:.92rem;min-height:62px;padding:10px 12px}
+  @media (max-width:430px){
+    #extraire{font-size:1.08rem}
+    #creer{font-size:.85rem}
+  }
   .etat{font-size:.9rem;color:#8FB0CC;min-height:1.2em;margin-top:8px;text-align:center}
   .etat.souci{color:var(--ambre)}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -226,7 +237,9 @@ if(typeof Tesseract === 'undefined'){
 
   <div class="grille" id="grille"></div>
 
-  <div class="reglages">
+  <button id="basculeOutils" aria-expanded="false">Réglages du document</button>
+
+  <div class="reglages" id="reglages">
     <div>
       <label for="nom">Nom du fichier</label>
       <input type="text" id="nom" value="adaptalbum" spellcheck="false">
@@ -277,7 +290,7 @@ if(typeof Tesseract === 'undefined'){
 </div>
 
 <div class="editeur" id="editeur" role="dialog" aria-modal="true" aria-label="Rogner la page">
-  <p class="consigne">Déplacez le cadre, tirez les coins pour ajuster.</p>
+  <p class="consigne" id="consigneRognage">Déplacez le cadre, tirez les coins pour ajuster.</p>
   <div class="scene">
     <div class="cadre" id="cadre">
       <img id="imgEdit" alt="Page à rogner">
@@ -380,8 +393,8 @@ if(typeof Tesseract === 'undefined'){
 
 <div class="pied">
   <div class="dedans">
-    <button class="principal" id="creer" disabled>Créer le PDF</button>
-    <button id="extraire" disabled>Extraire le texte</button>
+    <button class="principal" id="extraire" disabled>Lire le texte</button>
+    <button id="creer" disabled>Créer le PDF</button>
   </div>
   <div class="etat" id="etat"></div>
 </div>
@@ -407,9 +420,12 @@ function ajouterFichiers(liste){
   if(!pdfs.length && !images.length){ message("Ce fichier n'est ni une image ni un PDF.", true); return; }
   if(images.length){
     invaliderTexte();
+    const debut = pages.length;
     images.forEach(f => pages.push({ src: URL.createObjectURL(f), rot: 0 }));
-    message(images.length + (images.length > 1 ? ' pages ajoutées' : ' page ajoutée'));
     dessiner();
+    const neuves = [];
+    for(let i = debut; i < pages.length; i++) neuves.push(i);
+    lancerFileRognage(neuves);
   }
   if(pdfs.length) importerPdfs(pdfs);
 }
@@ -422,6 +438,7 @@ async function importerPdfs(fichiers){
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const morceaux = [];
+  const debutPdf = pages.length;
   try{
     for(const f of fichiers){
       const doc = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
@@ -451,7 +468,9 @@ async function importerPdfs(fichiers){
       ouvrirLecteur();
     }else{
       texteSource = null;
-      message('PDF importé. Il ne contient pas de texte : utilisez « Extraire le texte » pour le reconnaître.');
+      const neuves = [];
+      for(let i = debutPdf; i < pages.length; i++) neuves.push(i);
+      lancerFileRognage(neuves);
     }
   }catch(err){
     message("Ce PDF n'a pas pu être ouvert : " + err.message, true);
@@ -538,6 +557,32 @@ function dessinerBoite(){
   boite.style.height = ((cb.b - cb.t) * 100) + '%';
 }
 
+let fileRognage = [], enFile = false;
+
+function lancerFileRognage(indices){
+  fileRognage = indices.slice();
+  enFile = true;
+  suivantRognage();
+}
+function suivantRognage(){
+  if(!fileRognage.length){
+    enFile = false;
+    fermerRognage();
+    dessiner();
+    message('Cadrage terminé. Appuyez sur « Lire le texte ».');
+    return;
+  }
+  ouvrirRognage(fileRognage.shift());
+}
+function libellesRognage(i){
+  const reste = fileRognage.length;
+  document.getElementById('annulerRognage').textContent = enFile ? 'Garder telle quelle' : 'Annuler';
+  document.getElementById('validerRognage').textContent = enFile && reste ? 'Rogner et suivante' : 'Rogner';
+  document.getElementById('consigneRognage').textContent = enFile
+    ? 'Cadrez au plus près du texte' + (reste ? ' — encore ' + (reste + 1) + ' page' + (reste ? 's' : '') : ' — dernière page')
+    : 'Déplacez le cadre, tirez les coins pour ajuster.';
+}
+
 async function ouvrirRognage(i){
   const p = pages[i];
   message('Préparation de l\'image…');
@@ -562,6 +607,7 @@ async function ouvrirRognage(i){
     imgEdit.src = cv.toDataURL('image/jpeg', 0.95);
     cb = {l:0, t:0, r:1, b:1};
     dessinerBoite();
+    libellesRognage(i);
     editeur.classList.add('ouvert');
     message('');
   }catch(err){
@@ -618,7 +664,9 @@ document.getElementById('toutPrendre').addEventListener('click', () => {
   cb = {l:0, t:0, r:1, b:1};
   dessinerBoite();
 });
-document.getElementById('annulerRognage').addEventListener('click', fermerRognage);
+document.getElementById('annulerRognage').addEventListener('click', () => {
+  if(enFile) suivantRognage(); else fermerRognage();
+});
 
 document.getElementById('validerRognage').addEventListener('click', () => {
   const cv = editCanvas, i = editIndex;
@@ -638,13 +686,14 @@ document.getElementById('validerRognage').addEventListener('click', () => {
     invaliderTexte();
     fermerRognage();
     dessiner();
+    if(enFile){ suivantRognage(); return; }
     message('Page ' + (i+1) + ' rognée');
   }, 'image/jpeg', 0.94);
 });
 
 document.addEventListener('keydown', e => {
   if(e.key !== 'Escape') return;
-  if(editeur.classList.contains('ouvert')) fermerRognage();
+  if(editeur.classList.contains('ouvert')){ if(enFile) suivantRognage(); else fermerRognage(); }
   else if(lecteur.classList.contains('ouvert')){ arreterLecture(); lecteur.classList.remove('ouvert'); }
 });
 
@@ -1279,6 +1328,12 @@ btnCreer.addEventListener('click', async () => {
     message("Le PDF n'a pas pu être créé : " + err.message + ". Réessayez en qualité légère.", true);
   }
   btnCreer.disabled = false;
+});
+
+document.getElementById('basculeOutils').addEventListener('click', function(){
+  const ouvert = document.getElementById('reglages').classList.toggle('ouvert');
+  this.setAttribute('aria-expanded', ouvert ? 'true' : 'false');
+  this.textContent = ouvert ? 'Masquer les réglages' : 'Réglages du document';
 });
 
 dessiner();
