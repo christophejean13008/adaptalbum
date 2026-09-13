@@ -162,6 +162,8 @@ if(typeof Tesseract === 'undefined'){
       rgba(0,0,0,.055) 0, rgba(0,0,0,.055) var(--lh), transparent var(--lh), transparent calc(var(--lh)*2))
   }
   #texteLu .encours{background:var(--sur,#FFE08A);color:#14161A;border-radius:5px}
+  #texteLu .motlu{background:var(--sur,#FFE08A);border-radius:5px}
+  button.actif{background:var(--ambre);border-color:var(--ambre-sombre);color:#22160A;font-weight:600}
   #texteLu .s0{color:var(--c0)}
   #texteLu .s1{color:var(--c1)}
   #texteLu .s2{color:var(--c2)}
@@ -361,6 +363,8 @@ if(typeof Tesseract === 'undefined'){
     <label class="case"><input type="checkbox" id="rayures" checked><span>Colorer une ligne sur deux</span></label>
   </div>
 
+  <p class="consigne" id="consigne" style="margin:10px 14px 0">Touchez « Mot à mot » pour entendre un mot isolé.</p>
+
   <div class="zone-texte">
     <div id="texteLu" contenteditable="true" spellcheck="false"></div>
   </div>
@@ -368,6 +372,7 @@ if(typeof Tesseract === 'undefined'){
   <div class="audio">
     <select id="voix" aria-label="Voix de lecture"></select>
     <span class="vit"><label for="vitesse" style="margin:0">Vitesse</label><input type="range" id="vitesse" min="0.5" max="1.4" step="0.05" value="0.9"></span>
+    <button id="motAMot" title="Toucher un mot pour l'entendre seul">Mot à mot</button>
     <button class="principal" id="lire">Lire à voix haute</button>
     <button id="stopLecture">Arrêter</button>
   </div>
@@ -933,7 +938,7 @@ function remplir(parent, texte){
 function afficherTexte(){
   pane.innerHTML = '';
   remplir(pane, texteBrut);
-  pane.setAttribute('contenteditable', coloriageActif() ? 'false' : 'true');
+  pane.setAttribute('contenteditable', (coloriageActif() || motMot) ? 'false' : 'true');
 }
 
 /* ---------- Mise en forme adaptée ---------- */
@@ -1029,6 +1034,105 @@ document.getElementById('telechargerTxt').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 
+/* ---------- Lire un mot seul ---------- */
+const btnMot = document.getElementById('motAMot');
+let motMot = false, motSpan = null, sylLues = [];
+
+function nettoyerMot(){
+  if(motSpan && motSpan.parentNode){
+    const p = motSpan.parentNode;
+    while(motSpan.firstChild) p.insertBefore(motSpan.firstChild, motSpan);
+    p.removeChild(motSpan); p.normalize();
+  }
+  motSpan = null;
+  sylLues.forEach(s => s.classList.remove('motlu'));
+  sylLues = [];
+}
+
+function pointToCaret(x, y){
+  if(document.caretPositionFromPoint){
+    const p = document.caretPositionFromPoint(x, y);
+    return p ? { n:p.offsetNode, d:p.offset } : null;
+  }
+  if(document.caretRangeFromPoint){
+    const r = document.caretRangeFromPoint(x, y);
+    return r ? { n:r.startContainer, d:r.startOffset } : null;
+  }
+  return null;
+}
+
+const LETTRE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’-]/;
+
+function motSousLeDoigt(x, y){
+  const c = pointToCaret(x, y);
+  if(!c || c.n.nodeType !== 3) return null;
+  const parent = c.n.parentNode;
+  // texte découpé en syllabes : recomposer le mot à partir des spans voisins
+  if(parent && parent.dataset && parent.dataset.p !== undefined){
+    const groupe = [parent];
+    let p = parent.previousSibling;
+    while(p && p.nodeType === 1 && p.dataset && p.dataset.p !== undefined){ groupe.unshift(p); p = p.previousSibling; }
+    let s = parent.nextSibling;
+    while(s && s.nodeType === 1 && s.dataset && s.dataset.p !== undefined){ groupe.push(s); s = s.nextSibling; }
+    const mot = groupe.map(e => e.textContent).join('').trim();
+    if(!mot) return null;
+    groupe.forEach(e => e.classList.add('motlu'));
+    sylLues = groupe;
+    return mot;
+  }
+  // texte simple : chercher les bornes du mot dans le nœud de texte
+  const t = c.n.textContent || '';
+  let d = c.d, f = c.d;
+  while(d > 0 && LETTRE.test(t[d-1])) d--;
+  while(f < t.length && LETTRE.test(t[f])) f++;
+  const mot = t.slice(d, f).trim();
+  if(!mot) return null;
+  try{
+    const r = document.createRange();
+    r.setStart(c.n, d); r.setEnd(c.n, f);
+    const e = document.createElement('span');
+    e.className = 'motlu';
+    r.surroundContents(e);
+    motSpan = e;
+  }catch(err){ motSpan = null; }
+  return mot;
+}
+
+function dire(texte, apres){
+  if(!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(texte);
+  const v = voixDispo[selVoix.value];
+  if(v){ u.voice = v; u.lang = (v.lang || 'fr-FR').replace('_', '-'); } else u.lang = 'fr-FR';
+  u.rate = +document.getElementById('vitesse').value;
+  u.onend = apres; u.onerror = apres;
+  speechSynthesis.speak(u);
+}
+
+btnMot.addEventListener('click', () => {
+  motMot = !motMot;
+  btnMot.classList.toggle('actif', motMot);
+  if(motMot){
+    arreterLecture();
+    pane.setAttribute('contenteditable', 'false');
+    message2('Touchez un mot pour l\'entendre.');
+  }else{
+    nettoyerMot();
+    speechSynthesis.cancel();
+    pane.setAttribute('contenteditable', coloriageActif() ? 'false' : 'true');
+    message2('');
+  }
+});
+
+pane.addEventListener('click', e => {
+  if(!motMot) return;
+  speechSynthesis.cancel();
+  nettoyerMot();
+  const mot = motSousLeDoigt(e.clientX, e.clientY);
+  if(mot) dire(mot, nettoyerMot);
+});
+
+function message2(t){ document.getElementById('consigne').textContent = t || 'Touchez « Mot à mot » pour entendre un mot isolé.'; }
+
 /* ---------- Lecture à voix haute ---------- */
 const selVoix = document.getElementById('voix');
 const btnLire = document.getElementById('lire');
@@ -1108,6 +1212,7 @@ btnLire.addEventListener('click', () => {
     return;
   }
   speechSynthesis.cancel();
+  if(motMot){ motMot = false; btnMot.classList.remove('actif'); nettoyerMot(); message2(''); }
   construirePhrases();
   enLecture = true;
   btnLire.textContent = 'Pause';
