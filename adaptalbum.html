@@ -1571,6 +1571,7 @@ function exoResume(carte, d){
     const b = document.createElement('button');
     b.className = 'choix';
     styleCarte(b);
+    b.style.color = '#14161A';
     const hp = document.createElement('span');
     hp.className = 'haut-parleur'; hp.textContent = '🔊';
     hp.addEventListener('click', ev => { ev.stopPropagation(); parler(p.t); });
@@ -1606,6 +1607,8 @@ function exoPhrase(carte, phrase){
     const e = document.createElement('button');
     e.className = 'etiq'; e.textContent = mot;
     styleCarte(e);
+    e.style.color = '#14161A';
+    e.style.background = '#fff';
     e.addEventListener('click', () => {
       if(e.parentNode === rep){ res.appendChild(e); } else { rep.appendChild(e); }
       parler(mot);
@@ -1651,6 +1654,7 @@ function exoMot(carte, mot){
       champ.className = 'clavier-mot';
       champ.type = 'text'; champ.autocapitalize = 'none'; champ.autocomplete = 'off'; champ.spellcheck = false;
       styleCarte(champ);
+      champ.style.color = '#14161A';
       zone.appendChild(champ);
       bascule.textContent = '🔤 Étiquettes';
     }else{
@@ -1663,6 +1667,8 @@ function exoMot(carte, mot){
         const e = document.createElement('button');
         e.className = 'etiq lettre'; e.textContent = l;
         styleCarte(e);
+        e.style.color = '#14161A';
+        e.style.background = '#fff';
         e.addEventListener('click', () => { (e.parentNode === rep ? res : rep).appendChild(e); });
         res.appendChild(e);
       });
