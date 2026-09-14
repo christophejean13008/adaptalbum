@@ -169,6 +169,35 @@ if(typeof Tesseract === 'undefined'){
   #texteLu .s2{color:var(--c2)}
   #texteLu.gras-alt [data-p="1"]{font-weight:700}
   #texteLu span{cursor:pointer}
+
+  .exos{position:fixed;inset:0;z-index:70;display:none;flex-direction:column;
+    background:var(--bleu-profond);padding-bottom:env(safe-area-inset-bottom)}
+  .exos.ouvert{display:flex}
+  .scene-exo{flex:1;overflow:auto;padding:18px 14px;background:#0A1F35}
+  .carte-exo{max-width:34em;margin:0 auto;background:#fff;color:#1A1A1A;
+    border-radius:14px;padding:20px}
+  .consigne-exo{font-size:1.05rem;font-weight:600;margin:0 0 4px;display:flex;
+    align-items:center;gap:10px;color:#0A1F35}
+  .haut-parleur{border:1px solid #C8D3DE;background:#F2F6FA;color:#0A1F35;
+    border-radius:10px;min-height:40px;padding:6px 12px;font-size:1.1rem;cursor:pointer}
+  .zone{display:flex;flex-wrap:wrap;gap:8px;min-height:62px;padding:10px;
+    border:2px dashed #C8D3DE;border-radius:12px;margin:12px 0;align-content:flex-start}
+  .zone.pleine{border-style:solid}
+  .etiq{border:1px solid #B9C6D3;background:#fff;border-radius:10px;padding:10px 14px;
+    cursor:pointer;min-height:46px;display:inline-flex;align-items:center;
+    box-shadow:0 1px 2px rgba(10,31,53,.12)}
+  .etiq:active{transform:translateY(1px)}
+  .etiq.lettre{min-width:46px;justify-content:center;text-transform:none}
+  .choix{display:block;width:100%;text-align:left;border:2px solid #C8D3DE;background:#fff;
+    color:#1A1A1A;border-radius:12px;padding:14px;margin-bottom:10px;cursor:pointer;
+    display:flex;gap:10px;align-items:center}
+  .choix.bon{border-color:#1C7A45;background:#E7F6ED}
+  .choix.faux{border-color:#C0392B;background:#FBEAE7}
+  .verdict{margin-top:14px;padding:12px;border-radius:10px;font-weight:600}
+  .verdict.ok{background:#E7F6ED;color:#14603A}
+  .verdict.non{background:#FBEAE7;color:#8E2B20}
+  .clavier-mot{width:100%;font:inherit;font-size:1.4rem;padding:12px;border:2px solid #C8D3DE;
+    border-radius:12px;text-align:center;color:#1A1A1A;background:#fff}
   .audio{
     display:flex;gap:10px;align-items:center;flex-wrap:wrap;
     padding:12px 14px;border-top:1px solid var(--trait);background:rgba(7,22,36,.75)
@@ -278,6 +307,10 @@ if(typeof Tesseract === 'undefined'){
         <option value="1">Automatique avec orientation</option>
       </select>
     </div>
+    <div style="grid-column:1/-1">
+      <label for="relais">Adresse du relais Albert (exercices générés par l'IA de l'État)</label>
+      <input type="text" id="relais" placeholder="https://….workers.dev" spellcheck="false" autocomplete="off">
+    </div>
     <div>
       <label for="nettoyage">Nettoyage avant reconnaissance</label>
       <select id="nettoyage">
@@ -315,6 +348,7 @@ if(typeof Tesseract === 'undefined'){
     <button id="basculeReglages">Mise en forme</button>
     <button id="copierTexte">Copier</button>
     <button id="telechargerTxt">Enregistrer en .txt</button>
+    <button class="principal" id="ouvrirExos">Exercices</button>
   </div>
 
   <div class="panneau" id="panneau">
@@ -388,6 +422,19 @@ if(typeof Tesseract === 'undefined'){
     <button id="motAMot" title="Toucher un mot pour l'entendre seul">Mot à mot</button>
     <button class="principal" id="lire">Lire à voix haute</button>
     <button id="stopLecture">Arrêter</button>
+  </div>
+</div>
+
+
+<div class="exos" id="exos" role="dialog" aria-modal="true" aria-label="Exercices">
+  <div class="entete-lecteur">
+    <button id="fermerExos">Retour au texte</button>
+    <span class="compteur" id="progExo" style="align-self:center"></span>
+  </div>
+  <div class="scene-exo" id="sceneExo"></div>
+  <div class="audio">
+    <button id="relireConsigne" title="Réécouter la consigne">Réécouter</button>
+    <button class="principal" id="validerExo">Valider</button>
   </div>
 </div>
 
@@ -1329,6 +1376,334 @@ btnCreer.addEventListener('click', async () => {
   }
   btnCreer.disabled = false;
 });
+
+/* ---------- Exercices pour apprenti lecteur ---------- */
+const MODELES_ALBERT = ['mistralai/Mistral-Small-3.2-24B-Instruct-2506', 'openweight-medium'];
+const REGLE_EXO = "Tu assistes un enseignant spécialisé du premier degré. Tu réponds uniquement par un objet JSON valide, sans aucun texte autour, sans balises de code.";
+const CLE_RELAIS = 'adaptalbum_relais';
+
+function adresseRelais(){
+  const champ = document.getElementById('relais');
+  let v = champ ? champ.value.trim() : '';
+  if(!v){ try{ v = localStorage.getItem(CLE_RELAIS) || ''; }catch(e){} if(champ) champ.value = v; }
+  return v;
+}
+function memoriserRelais(){
+  try{ localStorage.setItem(CLE_RELAIS, document.getElementById('relais').value.trim()); }catch(e){}
+}
+function extraireJson(t){
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if(a < 0 || b < 0) throw new Error('réponse illisible');
+  return JSON.parse(t.slice(a, b+1));
+}
+async function appelRelais(demande){
+  const url = adresseRelais();
+  if(!url) throw new Error('pas de relais');
+  let derniere = null;
+  for(const modele of MODELES_ALBERT){
+    try{
+      const rep = await fetch(url, {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ model:modele, max_tokens:1200, temperature:0.2,
+          messages:[{ role:'system', content:REGLE_EXO }, { role:'user', content:demande }] })
+      });
+      if(!rep.ok){
+        if(rep.status === 403) throw new Error('origine refusée par le relais');
+        if(rep.status === 429) throw new Error('trop de demandes, réessayez dans un instant');
+        if(rep.status === 502) throw new Error("le relais n'atteint pas Albert");
+        throw new Error('le relais a répondu ' + rep.status);
+      }
+      const d = await rep.json();
+      return extraireJson((((d.choices || [])[0] || {}).message || {}).content || '');
+    }catch(e){
+      derniere = e;
+      if(/origine|trop de demandes|n'atteint pas/.test(e.message)) throw e;
+    }
+  }
+  throw derniere || new Error("le relais n'a pas répondu");
+}
+
+const mots = t => t.split(/\s+/).filter(Boolean);
+function melanger(a){
+  const b = a.slice();
+  for(let i = b.length-1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [b[i],b[j]] = [b[j],b[i]]; }
+  return b;
+}
+function matiereLocale(txt){
+  const ph = decouper(txt).map(p => p.trim().replace(/\s+/g,' '))
+    .filter(p => { const n = mots(p).length; return n >= 5 && n <= 10; });
+  const choisies = [];
+  if(ph.length){
+    const pas = Math.max(1, Math.floor(ph.length / 3));
+    for(let i = 0; i < ph.length && choisies.length < 3; i += pas) choisies.push(ph[i]);
+  }
+  const compte = {};
+  (txt.toLowerCase().match(/[a-zà-öø-ÿ]{3,7}/g) || []).forEach(m => compte[m] = (compte[m]||0)+1);
+  const liste = Object.keys(compte).sort((a,b) => compte[b]-compte[a]).slice(0, 40);
+  return { resume:null, phrases:choisies, mots:melanger(liste).slice(0, 4) };
+}
+async function matiereIA(txt){
+  const extrait = txt.slice(0, 4000);
+  const demande =
+    "Voici le texte d'un album lu par un élève de CP ou CE1 :\n\"\"\"\n" + extrait + "\n\"\"\"\n\n" +
+    "Réponds par ce JSON exactement :\n" +
+    '{"resume":{"bon":"…","faux":["…","…"]},"phrases":["…","…","…"],"mots":["…","…","…","…"]}\n\n' +
+    "- resume.bon : une phrase de 10 à 15 mots qui résume fidèlement le texte, vocabulaire d'élève de 7 ans.\n" +
+    "- resume.faux : deux phrases de longueur comparable, crédibles mais fausses (un personnage, un lieu ou une action changés).\n" +
+    "- phrases : trois phrases recopiées telles quelles depuis le texte, de 5 à 10 mots, sans guillemets.\n" +
+    "- mots : quatre mots du texte, de 3 à 7 lettres, en minuscules, sans apostrophe ni trait d'union.";
+  const d = await appelRelais(demande);
+  const propre = {
+    resume: (d.resume && d.resume.bon && Array.isArray(d.resume.faux) && d.resume.faux.length >= 2) ? d.resume : null,
+    phrases: (d.phrases || []).filter(p => typeof p === 'string' && mots(p).length >= 3).slice(0, 3),
+    mots: (d.mots || []).filter(m => typeof m === 'string' && /^[a-zà-öø-ÿ]{3,9}$/.test(m.toLowerCase())).slice(0, 4)
+  };
+  return propre;
+}
+
+const exos = document.getElementById('exos');
+const scene = document.getElementById('sceneExo');
+let listeExos = [], iExo = 0, reussites = 0, consigneCourante = '', validerCourant = null;
+
+function styleCarte(el){
+  el.style.fontFamily = polices[selPolice.value];
+  el.style.fontSize = Math.max(18, Math.min(30, +rTaille.value)) + 'px';
+  el.style.lineHeight = 1.5;
+  el.style.letterSpacing = rLettres.value + 'em';
+}
+function parler(t){ speechSynthesis.cancel(); dire(t, null); }
+
+function construireExos(m){
+  const l = [];
+  if(m.resume) l.push({ t:'resume', d:m.resume });
+  (m.phrases || []).forEach(p => l.push({ t:'phrase', d:p }));
+  (m.mots || []).forEach(w => l.push({ t:'mot', d:w }));
+  return l;
+}
+
+async function ouvrirExos(){
+  arreterLecture();
+  if(motMot){ motMot = false; btnMot.classList.remove('actif'); nettoyerMot(); }
+  texteBrut = pane.textContent;
+  if(texteBrut.replace(/\s/g,'').length < 60){ message2("Texte trop court pour des exercices."); return; }
+  exos.classList.add('ouvert');
+  scene.innerHTML = '<div class="carte-exo"><p class="consigne-exo">Préparation des exercices…</p></div>';
+  document.getElementById('progExo').textContent = '';
+  let m;
+  try{
+    m = adresseRelais() && navigator.onLine ? await matiereIA(texteBrut) : matiereLocale(texteBrut);
+    if(!m.phrases.length || !m.mots.length){
+      const loc = matiereLocale(texteBrut);
+      m.phrases = m.phrases.length ? m.phrases : loc.phrases;
+      m.mots = m.mots.length ? m.mots : loc.mots;
+    }
+  }catch(e){
+    m = matiereLocale(texteBrut);
+    m.avertissement = "Sans l'IA (" + e.message + ") : exercices construits à partir du texte.";
+  }
+  listeExos = construireExos(m);
+  if(!listeExos.length){ scene.innerHTML = '<div class="carte-exo"><p class="consigne-exo">Ce texte ne permet pas de construire d\'exercice.</p></div>'; return; }
+  iExo = 0; reussites = 0;
+  montrerExo(m.avertissement);
+}
+
+function montrerExo(note){
+  const e = listeExos[iExo];
+  document.getElementById('progExo').textContent = 'Exercice ' + (iExo+1) + ' sur ' + listeExos.length;
+  const b = document.getElementById('validerExo');
+  b.textContent = 'Valider'; b.disabled = false;
+  scene.innerHTML = '';
+  const carte = document.createElement('div');
+  carte.className = 'carte-exo';
+  styleCarte(carte);
+  scene.appendChild(carte);
+  if(note){
+    const p = document.createElement('p');
+    p.style.cssText = 'font-size:.85em;color:#6B7785;margin:0 0 10px';
+    p.textContent = note;
+    carte.appendChild(p);
+  }
+  if(e.t === 'resume') exoResume(carte, e.d);
+  if(e.t === 'phrase') exoPhrase(carte, e.d);
+  if(e.t === 'mot')    exoMot(carte, e.d);
+  scene.scrollTop = 0;
+  setTimeout(() => parler(consigneCourante), 300);
+}
+
+function enTete(carte, texte){
+  consigneCourante = texte;
+  const h = document.createElement('p');
+  h.className = 'consigne-exo';
+  const s = document.createElement('span');
+  s.textContent = texte;
+  const b = document.createElement('button');
+  b.className = 'haut-parleur'; b.textContent = '🔊'; b.title = 'Écouter la consigne';
+  b.addEventListener('click', () => parler(texte));
+  h.appendChild(s); h.appendChild(b);
+  carte.appendChild(h);
+}
+function verdict(carte, ok, texte){
+  const v = document.createElement('div');
+  v.className = 'verdict ' + (ok ? 'ok' : 'non');
+  v.textContent = texte;
+  carte.appendChild(v);
+  v.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  parler(texte);
+  if(ok) reussites++;
+  const b = document.getElementById('validerExo');
+  b.textContent = (iExo < listeExos.length - 1) ? 'Exercice suivant' : 'Terminer';
+  validerCourant = () => { iExo++; (iExo < listeExos.length) ? montrerExo() : bilan(); };
+}
+
+/* 1. le bon résumé */
+function exoResume(carte, d){
+  enTete(carte, "Quel est le bon résumé de l'histoire ?");
+  const props = melanger([{ t:d.bon, ok:true }, { t:d.faux[0], ok:false }, { t:d.faux[1], ok:false }]);
+  let choisi = null;
+  props.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'choix';
+    styleCarte(b);
+    const hp = document.createElement('span');
+    hp.className = 'haut-parleur'; hp.textContent = '🔊';
+    hp.addEventListener('click', ev => { ev.stopPropagation(); parler(p.t); });
+    const s = document.createElement('span'); s.textContent = p.t;
+    b.appendChild(hp); b.appendChild(s);
+    b.addEventListener('click', () => {
+      carte.querySelectorAll('.choix').forEach(x => x.style.borderColor = '#C8D3DE');
+      b.style.borderColor = '#1B4FA8';
+      choisi = p;
+    });
+    carte.appendChild(b);
+  });
+  validerCourant = () => {
+    if(!choisi) return;
+    carte.querySelectorAll('.choix').forEach((x, k) => x.classList.add(props[k].ok ? 'bon' : 'faux'));
+    verdict(carte, choisi.ok, choisi.ok ? "Bravo, c'est le bon résumé." : "Ce n'est pas celui-là. Le bon résumé est en vert.");
+  };
+}
+
+/* 2. remettre la phrase dans l'ordre */
+function exoPhrase(carte, phrase){
+  enTete(carte, "Remets la phrase dans l'ordre.");
+  const cible = mots(phrase.trim());
+  const ecoute = document.createElement('button');
+  ecoute.className = 'haut-parleur';
+  ecoute.textContent = '🔊 Écouter la phrase';
+  ecoute.addEventListener('click', () => parler(phrase));
+  carte.appendChild(ecoute);
+  const rep = document.createElement('div'); rep.className = 'zone';
+  const res = document.createElement('div'); res.className = 'zone pleine';
+  carte.appendChild(rep); carte.appendChild(res);
+  const faire = (mot, dans, vers) => {
+    const e = document.createElement('button');
+    e.className = 'etiq'; e.textContent = mot;
+    styleCarte(e);
+    e.addEventListener('click', () => {
+      if(e.parentNode === rep){ res.appendChild(e); } else { rep.appendChild(e); }
+      parler(mot);
+    });
+    dans.appendChild(e);
+  };
+  melanger(cible).forEach(m => faire(m, res));
+  validerCourant = () => {
+    const prop = [...rep.children].map(x => x.textContent).join(' ');
+    const ok = prop.replace(/\s+/g,' ').trim() === cible.join(' ');
+    verdict(carte, ok, ok ? 'Bravo, la phrase est juste.' : 'Pas encore. La phrase était : ' + phrase.trim());
+  };
+}
+
+/* 3. écrire un mot, par étiquettes-lettres ou au clavier */
+function exoMot(carte, mot){
+  enTete(carte, "Écoute le mot, puis écris-le.");
+  const m = mot.toLowerCase();
+  const ecoute = document.createElement('button');
+  ecoute.className = 'haut-parleur';
+  ecoute.textContent = '🔊 Écouter le mot';
+  ecoute.addEventListener('click', () => parler(m));
+  carte.appendChild(ecoute);
+  const bascule = document.createElement('button');
+  bascule.className = 'haut-parleur';
+  bascule.style.marginLeft = '8px';
+  bascule.textContent = '⌨ Clavier';
+  carte.appendChild(bascule);
+  const aide = document.createElement('button');
+  aide.className = 'haut-parleur';
+  aide.style.marginLeft = '8px';
+  aide.textContent = '👁 Voir le mot';
+  carte.appendChild(aide);
+
+  const zone = document.createElement('div');
+  carte.appendChild(zone);
+  let mode = 'etiquettes', champ = null, rep = null;
+
+  function rendre(){
+    zone.innerHTML = '';
+    if(mode === 'clavier'){
+      champ = document.createElement('input');
+      champ.className = 'clavier-mot';
+      champ.type = 'text'; champ.autocapitalize = 'none'; champ.autocomplete = 'off'; champ.spellcheck = false;
+      styleCarte(champ);
+      zone.appendChild(champ);
+      bascule.textContent = '🔤 Étiquettes';
+    }else{
+      rep = document.createElement('div'); rep.className = 'zone';
+      const res = document.createElement('div'); res.className = 'zone pleine';
+      zone.appendChild(rep); zone.appendChild(res);
+      const sup = 'aeiourstlnm'.split('');
+      const lettres = melanger(m.split('').concat(melanger(sup).slice(0, 2)));
+      lettres.forEach(l => {
+        const e = document.createElement('button');
+        e.className = 'etiq lettre'; e.textContent = l;
+        styleCarte(e);
+        e.addEventListener('click', () => { (e.parentNode === rep ? res : rep).appendChild(e); });
+        res.appendChild(e);
+      });
+      bascule.textContent = '⌨ Clavier';
+    }
+  }
+  rendre();
+  bascule.addEventListener('click', () => { mode = (mode === 'clavier') ? 'etiquettes' : 'clavier'; rendre(); });
+  aide.addEventListener('click', () => {
+    const v = document.createElement('div');
+    v.className = 'verdict ok'; v.textContent = m;
+    styleCarte(v);
+    carte.appendChild(v);
+    setTimeout(() => v.remove(), 3000);
+  });
+  validerCourant = () => {
+    const prop = (mode === 'clavier' ? (champ.value || '') : [...rep.children].map(x => x.textContent).join(''))
+      .toLowerCase().trim();
+    const ok = prop === m;
+    verdict(carte, ok, ok ? 'Bravo, le mot est bien écrit.' : 'Le mot s\'écrit : ' + m);
+  };
+}
+
+function bilan(){
+  document.getElementById('progExo').textContent = 'Terminé';
+  scene.innerHTML = '';
+  const c = document.createElement('div');
+  c.className = 'carte-exo'; styleCarte(c);
+  const t = 'Tu as réussi ' + reussites + ' exercice' + (reussites > 1 ? 's' : '') + ' sur ' + listeExos.length + '.';
+  const p = document.createElement('p'); p.className = 'consigne-exo'; p.textContent = t;
+  c.appendChild(p);
+  scene.appendChild(c);
+  parler(t);
+  const b = document.getElementById('validerExo');
+  b.textContent = 'Recommencer';
+  validerCourant = () => { iExo = 0; reussites = 0; montrerExo(); };
+}
+
+document.getElementById('validerExo').addEventListener('click', () => { if(validerCourant) validerCourant(); });
+document.getElementById('relireConsigne').addEventListener('click', () => parler(consigneCourante));
+document.getElementById('fermerExos').addEventListener('click', () => {
+  speechSynthesis.cancel();
+  exos.classList.remove('ouvert');
+});
+document.getElementById('ouvrirExos').addEventListener('click', ouvrirExos);
+
+document.getElementById('relais').addEventListener('change', memoriserRelais);
+adresseRelais();
 
 document.getElementById('basculeOutils').addEventListener('click', function(){
   const ouvert = document.getElementById('reglages').classList.toggle('ouvert');
