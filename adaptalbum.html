@@ -308,7 +308,7 @@ if(typeof Tesseract === 'undefined'){
       </select>
     </div>
     <div style="grid-column:1/-1">
-      <label for="relais">Adresse du relais Albert (exercices générés par l'IA de l'État)</label>
+      <label for="relais">Adresse du relais Albert — déjà renseignée, à ne changer qu'en cas de besoin</label>
       <input type="text" id="relais" placeholder="https://….workers.dev" spellcheck="false" autocomplete="off">
     </div>
     <div>
@@ -1381,11 +1381,16 @@ btnCreer.addEventListener('click', async () => {
 const MODELES_ALBERT = ['mistralai/Mistral-Small-3.2-24B-Instruct-2506', 'openweight-medium'];
 const REGLE_EXO = "Tu assistes un enseignant spécialisé du premier degré. Tu réponds uniquement par un objet JSON valide, sans aucun texte autour, sans balises de code.";
 const CLE_RELAIS = 'adaptalbum_relais';
+const RELAIS_DEFAUT = 'https://adaptedl-relais.chris333j.workers.dev';
 
 function adresseRelais(){
   const champ = document.getElementById('relais');
   let v = champ ? champ.value.trim() : '';
-  if(!v){ try{ v = localStorage.getItem(CLE_RELAIS) || ''; }catch(e){} if(champ) champ.value = v; }
+  if(!v){
+    try{ v = localStorage.getItem(CLE_RELAIS) || ''; }catch(e){}
+    if(!v) v = RELAIS_DEFAUT;
+    if(champ) champ.value = v;
+  }
   return v;
 }
 function memoriserRelais(){
