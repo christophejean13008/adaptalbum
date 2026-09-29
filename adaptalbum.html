@@ -422,8 +422,8 @@ if(typeof Tesseract === 'undefined'){
     <div>
       <label for="syllabes">Coloration des syllabes</label>
       <select id="syllabes">
-        <option value="non">Aucune (texte modifiable)</option>
         <option value="deux">Deux couleurs alternées</option>
+        <option value="non">Aucune (texte modifiable)</option>
         <option value="trois">Trois couleurs</option>
         <option value="gris">Noir et gris</option>
       </select>
@@ -1498,7 +1498,7 @@ function styleCarte(el){
   el.style.lineHeight = 1.5;
   el.style.letterSpacing = rLettres.value + 'em';
 }
-function parler(t){ speechSynthesis.cancel(); dire(t, null); }
+function dicter(t){ speechSynthesis.cancel(); dire(t, null); }
 
 function construireExos(m){
   const l = [];
@@ -1554,7 +1554,7 @@ function montrerExo(note){
   if(e.t === 'phrase') exoPhrase(carte, e.d);
   if(e.t === 'mot')    exoMot(carte, e.d);
   scene.scrollTop = 0;
-  setTimeout(() => parler(consigneCourante), 300);
+  setTimeout(() => dicter(consigneCourante), 300);
 }
 
 function enTete(carte, texte){
@@ -1565,7 +1565,7 @@ function enTete(carte, texte){
   s.textContent = texte;
   const b = document.createElement('button');
   b.className = 'haut-parleur'; b.textContent = '🔊'; b.title = 'Écouter la consigne';
-  b.addEventListener('click', () => parler(texte));
+  b.addEventListener('click', () => dicter(texte));
   h.appendChild(s); h.appendChild(b);
   carte.appendChild(h);
 }
@@ -1575,7 +1575,7 @@ function verdict(carte, ok, texte){
   v.textContent = texte;
   carte.appendChild(v);
   v.scrollIntoView({ block:'nearest', behavior:'smooth' });
-  parler(texte);
+  dicter(texte);
   if(ok) reussites++;
   const b = document.getElementById('validerExo');
   b.textContent = (iExo < listeExos.length - 1) ? 'Exercice suivant' : 'Terminer';
@@ -1594,7 +1594,7 @@ function exoResume(carte, d){
     b.style.color = '#14161A';
     const hp = document.createElement('span');
     hp.className = 'haut-parleur'; hp.textContent = '🔊';
-    hp.addEventListener('click', ev => { ev.stopPropagation(); parler(p.t); });
+    hp.addEventListener('click', ev => { ev.stopPropagation(); dicter(p.t); });
     const s = document.createElement('span'); s.textContent = p.t;
     b.appendChild(hp); b.appendChild(s);
     b.addEventListener('click', () => {
@@ -1618,7 +1618,7 @@ function exoPhrase(carte, phrase){
   const ecoute = document.createElement('button');
   ecoute.className = 'haut-parleur';
   ecoute.textContent = '🔊 Écouter la phrase';
-  ecoute.addEventListener('click', () => parler(phrase));
+  ecoute.addEventListener('click', () => dicter(phrase));
   carte.appendChild(ecoute);
   const rep = document.createElement('div'); rep.className = 'zone';
   const res = document.createElement('div'); res.className = 'zone pleine';
@@ -1631,7 +1631,7 @@ function exoPhrase(carte, phrase){
     e.style.background = '#fff';
     e.addEventListener('click', () => {
       if(e.parentNode === rep){ res.appendChild(e); } else { rep.appendChild(e); }
-      parler(mot);
+      dicter(mot);
     });
     dans.appendChild(e);
   };
@@ -1650,7 +1650,7 @@ function exoMot(carte, mot){
   const ecoute = document.createElement('button');
   ecoute.className = 'haut-parleur';
   ecoute.textContent = '🔊 Écouter le mot';
-  ecoute.addEventListener('click', () => parler(m));
+  ecoute.addEventListener('click', () => dicter(m));
   carte.appendChild(ecoute);
   const bascule = document.createElement('button');
   bascule.className = 'haut-parleur';
@@ -1721,14 +1721,14 @@ function bilan(){
   const p = document.createElement('p'); p.className = 'consigne-exo'; p.textContent = t;
   c.appendChild(p);
   scene.appendChild(c);
-  parler(t);
+  dicter(t);
   const b = document.getElementById('validerExo');
   b.textContent = 'Recommencer';
   validerCourant = () => { iExo = 0; reussites = 0; montrerExo(); };
 }
 
 document.getElementById('validerExo').addEventListener('click', () => { if(validerCourant) validerCourant(); });
-document.getElementById('relireConsigne').addEventListener('click', () => parler(consigneCourante));
+document.getElementById('relireConsigne').addEventListener('click', () => dicter(consigneCourante));
 document.getElementById('fermerExos').addEventListener('click', () => {
   speechSynthesis.cancel();
   exos.classList.remove('ouvert');
