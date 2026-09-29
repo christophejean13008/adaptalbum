@@ -116,13 +116,29 @@ if(typeof Tesseract === 'undefined'){
     box-shadow:0 0 0 9999px rgba(5,15,26,.66)
   }
   .poignee{
-    position:absolute;width:28px;height:28px;margin:-15px 0 0 -15px;
-    background:var(--ambre);border:2px solid #22160A;border-radius:50%;touch-action:none
+    position:absolute;width:58px;height:58px;margin:-16px 0 0 -16px;
+    background:transparent;border:0;padding:0;touch-action:none
+  }
+  .poignee::after{
+    content:'';position:absolute;left:50%;top:50%;width:30px;height:30px;
+    margin:-15px 0 0 -15px;background:var(--ambre);border:3px solid #22160A;
+    border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.45)
   }
   .poignee.nw{left:0;top:0;cursor:nwse-resize}
-  .poignee.ne{left:100%;top:0;cursor:nesw-resize}
-  .poignee.sw{left:0;top:100%;cursor:nesw-resize}
-  .poignee.se{left:100%;top:100%;cursor:nwse-resize}
+  .poignee.ne{left:100%;top:0;margin-left:-42px;cursor:nesw-resize}
+  .poignee.sw{left:0;top:100%;margin-top:-42px;cursor:nesw-resize}
+  .poignee.se{left:100%;top:100%;margin:-42px 0 0 -42px;cursor:nwse-resize}
+  .bord{position:absolute;background:transparent;border:0;padding:0;touch-action:none}
+  .bord::after{content:'';position:absolute;background:var(--ambre);border-radius:3px;
+    box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  .bord.n,.bord.s{left:0;width:100%;height:46px;cursor:ns-resize}
+  .bord.n{top:0;margin-top:-14px}
+  .bord.s{top:100%;margin-top:-32px}
+  .bord.o,.bord.e{top:0;height:100%;width:46px;cursor:ew-resize}
+  .bord.o{left:0;margin-left:-14px}
+  .bord.e{left:100%;margin-left:-32px}
+  .bord.n::after,.bord.s::after{left:38%;width:24%;height:6px;top:50%;margin-top:-3px}
+  .bord.o::after,.bord.e::after{top:38%;height:24%;width:6px;left:50%;margin-left:-3px}
   .barre-editeur{display:flex;gap:10px;margin-top:14px}
   .barre-editeur button{flex:1;justify-content:center}
 
@@ -330,6 +346,10 @@ if(typeof Tesseract === 'undefined'){
     <div class="cadre" id="cadre">
       <img id="imgEdit" alt="Page à rogner">
       <div class="boite" id="boite">
+        <span class="bord n" data-c="n"></span>
+        <span class="bord s" data-c="s"></span>
+        <span class="bord o" data-c="w"></span>
+        <span class="bord e" data-c="e"></span>
         <span class="poignee nw" data-c="nw"></span>
         <span class="poignee ne" data-c="ne"></span>
         <span class="poignee sw" data-c="sw"></span>
@@ -654,7 +674,7 @@ async function ouvrirRognage(i){
     editCanvas = cv;
     editIndex  = i;
     imgEdit.src = cv.toDataURL('image/jpeg', 0.95);
-    cb = {l:0, t:0, r:1, b:1};
+    cb = {l:0.04, t:0.04, r:0.96, b:0.96};
     dessinerBoite();
     libellesRognage(i);
     editeur.classList.add('ouvert');
@@ -682,13 +702,13 @@ function debut(e, coin){
   if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
 }
 boite.addEventListener('pointerdown', e => { if(e.target === boite) debut(e, 'move'); });
-boite.querySelectorAll('.poignee').forEach(h =>
+boite.querySelectorAll('.poignee, .bord').forEach(h =>
   h.addEventListener('pointerdown', e => { e.stopPropagation(); debut(e, h.dataset.c); }));
 
 window.addEventListener('pointermove', e => {
   if(!prise) return;
   e.preventDefault();
-  const p = position(e), a = prise.avant, MIN = 0.06;
+  const p = position(e), a = prise.avant, MIN = 0.1;
   const dx = p.x - prise.depart.x, dy = p.y - prise.depart.y;
 
   if(prise.coin === 'move'){
@@ -698,10 +718,10 @@ window.addEventListener('pointermove', e => {
   }else{
     const c = prise.coin;
     cb = {...a};
-    if(c === 'nw' || c === 'sw') cb.l = borne(a.l + dx, 0, a.r - MIN);
-    if(c === 'ne' || c === 'se') cb.r = borne(a.r + dx, a.l + MIN, 1);
-    if(c === 'nw' || c === 'ne') cb.t = borne(a.t + dy, 0, a.b - MIN);
-    if(c === 'sw' || c === 'se') cb.b = borne(a.b + dy, a.t + MIN, 1);
+    if(c.includes('w')) cb.l = borne(a.l + dx, 0, a.r - MIN);
+    if(c.includes('e')) cb.r = borne(a.r + dx, a.l + MIN, 1);
+    if(c.includes('n')) cb.t = borne(a.t + dy, 0, a.b - MIN);
+    if(c.includes('s')) cb.b = borne(a.b + dy, a.t + MIN, 1);
   }
   dessinerBoite();
 }, { passive:false });
