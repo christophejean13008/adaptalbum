@@ -167,7 +167,23 @@ if(typeof Tesseract === 'undefined'){
   .case{display:flex;align-items:center;gap:10px;margin-top:22px}
   .case input{width:22px;height:22px;accent-color:var(--ambre)}
   .case span{font-size:.95rem;color:var(--bleu-clair)}
-  .zone-texte{flex:1;overflow:auto;padding:18px 14px;background:#0A1F35}
+  #corps{flex:1;min-height:0;display:flex;flex-direction:column}
+  .comparer{display:none;flex-direction:column;min-height:0;flex:0 0 42%;
+    background:#071624;border-bottom:1px solid var(--trait)}
+  .comparer.ouvert{display:flex}
+  .barre-comparer{display:flex;gap:8px;align-items:center;padding:8px 12px;
+    border-bottom:1px solid var(--trait)}
+  .barre-comparer button{padding:8px 12px;min-height:40px;font-size:.95rem}
+  .barre-comparer span{font-size:.9rem;color:#8FB0CC;font-variant-numeric:tabular-nums}
+  .vue-photo{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:8px}
+  .vue-photo img{max-width:100%;max-height:100%;object-fit:contain;background:#fff}
+  .vue-photo.zoom{align-items:flex-start;justify-content:flex-start}
+  .vue-photo.zoom img{max-width:none;max-height:none;width:220%}
+  @media (min-width:760px){
+    #corps{flex-direction:row}
+    .comparer.ouvert{flex:0 0 46%;border-bottom:0;border-right:1px solid var(--trait)}
+  }
+  .zone-texte{flex:1;min-height:0;overflow:auto;padding:18px 14px;background:#0A1F35}
   #texteLu{
     max-width:36em;margin:0 auto;padding:22px;border-radius:12px;
     white-space:pre-wrap;background-origin:content-box;background-repeat:repeat-y;
@@ -368,6 +384,7 @@ if(typeof Tesseract === 'undefined'){
   <div class="entete-lecteur">
     <button id="fermerLecteur">Retour aux pages</button>
     <button id="basculeReglages">Mise en forme</button>
+    <button id="voirPhoto">Voir la photo</button>
     <button id="copierTexte">Copier</button>
     <button id="telechargerTxt">Enregistrer en .txt</button>
     <button class="principal" id="ouvrirExos">Exercices</button>
@@ -434,8 +451,19 @@ if(typeof Tesseract === 'undefined'){
 
   <p class="consigne" id="consigne" style="margin:10px 14px 0">Touchez « Mot à mot » pour entendre un mot isolé.</p>
 
-  <div class="zone-texte">
-    <div id="texteLu" contenteditable="true" spellcheck="false"></div>
+  <div id="corps">
+    <div class="comparer" id="comparer">
+      <div class="barre-comparer">
+        <button id="pagePrec" aria-label="Page précédente">◀</button>
+        <span id="pageNum"></span>
+        <button id="pageSuiv" aria-label="Page suivante">▶</button>
+        <button id="zoomPhoto">Agrandir</button>
+      </div>
+      <div class="vue-photo" id="vuePhoto"><img id="photoControle" alt="Page numérisée"></div>
+    </div>
+    <div class="zone-texte">
+      <div id="texteLu" contenteditable="true" spellcheck="false"></div>
+    </div>
   </div>
 
   <div class="audio">
@@ -949,7 +977,12 @@ btnExtraire.addEventListener('click', async () => {
     await worker.terminate(); worker = null;
     texteBrut = nettoyer(morceaux.filter(Boolean).join('\n\n'));
     if(!texteBrut){ message("Aucun texte n'a été reconnu sur ces images.", true); }
-    else { ouvrirLecteur(); message(''); }
+    else {
+      ouvrirLecteur();
+      message('');
+      iPhoto = 0;
+      message2('Texte reconnu. Touchez « Voir la photo » pour le vérifier et le corriger.');
+    }
   }catch(err){
     if(worker) try{ await worker.terminate(); }catch(e){}
     message("La reconnaissance a échoué : " + err.message, true);
@@ -1134,6 +1167,9 @@ function ouvrirLecteur(){
 }
 document.getElementById('fermerLecteur').addEventListener('click', () => {
   arreterLecture();
+  comparer.classList.remove('ouvert');
+  btnVoirPhoto.classList.remove('actif');
+  btnVoirPhoto.textContent = 'Voir la photo';
   texteBrut = pane.textContent;
   lecteur.classList.remove('ouvert');
 });
@@ -1150,6 +1186,46 @@ document.getElementById('telechargerTxt').addEventListener('click', () => {
   a.download = nom + '.txt';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+/* ---------- Contrôler le texte face à la photo ---------- */
+const comparer = document.getElementById('comparer');
+const btnVoirPhoto = document.getElementById('voirPhoto');
+let iPhoto = 0;
+
+function montrerPhoto(){
+  if(!pages.length) return;
+  iPhoto = Math.max(0, Math.min(pages.length - 1, iPhoto));
+  const img = document.getElementById('photoControle');
+  img.src = pages[iPhoto].src;
+  img.style.transform = 'rotate(' + pages[iPhoto].rot + 'deg)';
+  document.getElementById('pageNum').textContent = (iPhoto + 1) + ' / ' + pages.length;
+  document.getElementById('pagePrec').disabled = (iPhoto === 0);
+  document.getElementById('pageSuiv').disabled = (iPhoto === pages.length - 1);
+}
+function ouvrirComparaison(ouvrir){
+  comparer.classList.toggle('ouvert', ouvrir);
+  btnVoirPhoto.classList.toggle('actif', ouvrir);
+  btnVoirPhoto.textContent = ouvrir ? 'Masquer la photo' : 'Voir la photo';
+  if(ouvrir){
+    arreterLecture();
+    if(motMot){ motMot = false; btnMot.classList.remove('actif'); nettoyerMot(); }
+    if(coloriageActif()){ selSyl.value = 'non'; afficherTexte(); appliquerStyle(); }
+    pane.setAttribute('contenteditable', 'true');
+    montrerPhoto();
+    message2('Corrigez le texte en le comparant à la photo.');
+  }else{
+    texteBrut = pane.textContent;
+    if(selSyl.value === 'non'){ selSyl.value = 'deux'; afficherTexte(); appliquerStyle(); }
+    message2('');
+  }
+}
+btnVoirPhoto.addEventListener('click', () => ouvrirComparaison(!comparer.classList.contains('ouvert')));
+document.getElementById('pagePrec').addEventListener('click', () => { iPhoto--; montrerPhoto(); });
+document.getElementById('pageSuiv').addEventListener('click', () => { iPhoto++; montrerPhoto(); });
+document.getElementById('zoomPhoto').addEventListener('click', function(){
+  const z = document.getElementById('vuePhoto').classList.toggle('zoom');
+  this.textContent = z ? 'Ajuster' : 'Agrandir';
 });
 
 /* ---------- Lire un mot seul ---------- */
